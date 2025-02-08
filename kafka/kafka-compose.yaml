@@ -1,0 +1,29 @@
+version: '2'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    ports:
+      - "9092:9092"  # Port cho client kết nối từ ngoài
+      # - "30092:9092"  # NodePort cho Kafka (port 9092 của Kafka expose ra ngoài qua NodePort)
+    # expose:
+    #   - "9093"  # Cổng nội bộ cho Kafka
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092 #localhost not run => listeners all
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092 #localhost not run => listeners all
+      # KAFKA_LISTENERS: INSIDE_KAFKA://0.0.0.0:9093,OUTSIDE_KAFKA://0.0.0.0:9092  # Lắng nghe trên cổng 9093 cho nội bộ và cổng 9092 cho bên ngoài
+      # KAFKA_ADVERTISED_LISTENERS: INSIDE_KAFKA://localhost:9093,OUTSIDE_KAFKA://localhost:9092  # Quảng bá cổng cho client kết nối
+      KAFKA_LISTENER_SECURITY_PROTOCOL: PLAINTEXT  # Giao thức bảo mật
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181  # Kết nối tới Zookeeper
+    depends_on:
+      - zookeeper
+
