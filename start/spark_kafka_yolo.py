@@ -1,31 +1,44 @@
-import json
 import base64
+import json
 import cv2
+import time
 import numpy as np
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import expr
 from ultralytics import YOLO
 
 #Khởi tạo Spark Streaming
 spark = SparkSession.builder \
-    .appName("Test Kafka Input & YOLO Pipe Counting") \
+    .appName("Water Pipe Count") \
     .master("spark://tienlee-virtual-machine:7077") \
+    .config("spark.sql.streaming.checkpointLocation", "/tmp/kafka-checkpoints") \
     .getOrCreate()
 
+#Đọc dữ liệu từ Kafka (ảnh base64 từ `kafka_input`)
 df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("subscribe", "kafka_input") \
     .option("startingOffsets", "latest") \
     .option("failOnDataLoss", "false") \
-    .load() \
-    .selectExpr("CAST(value AS STRING) as message")  # Chuyển message Kafka thành string
+    .load()
 
-#Load YOLO Model trong mỗi worker (KHÔNG truyền từ driver)
-model = YOLO("./training_results_3m.pt")
+#Chuyển đổi dữ liệu Kafka từ binary → string
+df = df.selectExpr("CAST(value AS STRING) as message")
+
+#Hàm để phân tích cú pháp JSON an toàn
+def safe_json_parse(json_str):
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
 
 #Hàm YOLO nhận diện ống nước từ ảnh base64
 def count_pipe(base64_input):
     try:
+        #Load YOLO Model trong mỗi worker (KHÔNG truyền từ driver)
+        model = YOLO("./training_results_3m.pt")
+
         # Giải mã ảnh base64
         image_data = base64.b64decode(base64_input)
         np_arr = np.frombuffer(image_data, np.uint8)
@@ -36,34 +49,83 @@ def count_pipe(base64_input):
 
         # Chạy YOLO model
         results = model(image)
-        total_pipe = len(results[0].boxes)
+        detected_boxes = results[0].boxes
+        total_pipe = len(detected_boxes)
 
-        return total_pipe  # Chỉ trả về số lượng ống nước
+        # Mã hóa ảnh kết quả
+        retval, buffer = cv2.imencode('.jpg', image)
+        out_image_base64 = base64.b64encode(buffer).decode('utf-8')
+
+        return {
+            "status": "success",
+            "processed_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "total_pipe": total_pipe,
+            "out_image": out_image_base64
+        }
 
     except Exception as e:
-        print(f"❌ Lỗi xử lý ảnh: {e}")
-        return None  # Nếu lỗi thì trả về None
+        return {
+            "status": "error",
+            "processed_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "error_message": str(e)
+        }
 
-#Xử lý batch dữ liệu từ Kafka
+#Xử lý từng batch ảnh từ Kafka
 def process_batch(batch_df, batch_id):
-    data_list = batch_df.select("message").toPandas()["message"].tolist()  # Chuyển thành danh sách Python
+    try:
+        # Kiểm tra nếu batch rỗng
+        if batch_df.rdd.isEmpty():
+            print(f"⚠️ Batch {batch_id} không có dữ liệu, bỏ qua...")
+            return
 
-    #Xử lý từng ảnh nhận được từ Kafka
-    for data in data_list:
-        try:
-            json_data = json.loads(data)  # Parse JSON từ message
-            if "image" in json_data:  # Kiểm tra có dữ liệu ảnh không
-                total_pipes = count_pipe(json_data["image"])  # Xử lý ảnh với YOLO
-                print(f"✅ Batch {batch_id} - Ống nước đếm được: {total_pipes}")
-            else:
-                print(f"⚠️ Batch {batch_id} - Không có dữ liệu ảnh hợp lệ!")
-        except json.JSONDecodeError:
-            print(f"❌ Batch {batch_id} - JSON không hợp lệ!")
+        #Chuyển đổi RDD
+        processed_rdd = (
+            batch_df.rdd
+            .map(lambda row: safe_json_parse(row["message"]))  # Xử lý JSON an toàn
+            .filter(lambda data: data is not None and "image" in data)  # Lọc dữ liệu hợp lệ
+            .map(lambda data: count_pipe(data["image"]))  # Xử lý ảnh
+        )
 
-#Bắt đầu Spark Streaming
+        if processed_rdd.isEmpty():
+            print(f"⚠️ Batch {batch_id} không có kết quả hợp lệ, bỏ qua...")
+            return
+
+        #Xử lý kết quả thành công
+        success_rdd = processed_rdd.filter(lambda res: res["status"] == "success")
+        if not success_rdd.isEmpty():
+            formatted_rdd = success_rdd.map(lambda x: (json.dumps(x),))  # Định dạng tuple (value,)
+            success_df = spark.createDataFrame(formatted_rdd, ["value"])
+            
+            if not success_df.rdd.isEmpty():  # Đảm bảo có dữ liệu trước khi ghi vào Kafka
+                success_df.write \
+                    .format("kafka") \
+                    .option("kafka.bootstrap.servers", "localhost:9092") \
+                    .option("topic", "kafka_output") \
+                    .save()
+
+        #Xử lý lỗi
+        error_rdd = processed_rdd.filter(lambda res: res["status"] == "error")
+        if not error_rdd.isEmpty():
+            error_df = spark.createDataFrame(error_rdd.map(lambda x: (json.dumps(x),)), ["value"])
+            
+            if not error_df.rdd.isEmpty():  # Kiểm tra trước khi ghi vào Kafka
+                error_df.write \
+                    .format("kafka") \
+                    .option("kafka.bootstrap.servers", "localhost:9092") \
+                    .option("topic", "kafka_output") \
+                    .save()
+
+        print(f"✅ Batch {batch_id} xử lý xong.")
+
+    except Exception as e:
+        print(f"❌ Lỗi batch {batch_id}: {e}")
+
+
+
+#Ghi dữ liệu đã xử lý vào Kafka (`kafka_output`)
 df.writeStream \
-    .foreachBatch(process_batch) \
+    .foreachBatch(lambda batch_df, batch_id: process_batch(batch_df, batch_id)) \
     .start()
 
+#Chạy Spark Streaming
 spark.streams.awaitAnyTermination()
-
