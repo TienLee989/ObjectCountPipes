@@ -102,7 +102,7 @@ for box in detected_boxes:
 print(f'Count: {count}') # Kết quả chỉnh xác
 
 # Hiển thị ảnh với bounding boxes
-print(f'Detected Objects: {len(detected_boxes)}')
+# print(f'Detected Objects: {len(detected_boxes)}')
 
 cv2.imwrite(output_image_path, overlayed_image)  # Lưu ảnh đã vẽ bounding box
 print(f"Saved output image to {output_image_path}")
