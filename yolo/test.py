@@ -1,15 +1,7 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
-import os
-
-# Tải mô hình đã huấn luyện
-model = YOLO("./training_results_1m.pt")  # Đảm bảo đường dẫn đúng
-
-# Đường dẫn ảnh (một ảnh duy nhất)
-image_path = './test/original/P1000572-Copy_JPG.rf.c27022a62192ba1a5b27d19d5f8e8afc.jpg'  # Đường dẫn ảnh GỐC
-output_image_path = 'output_test.jpg' # Đường dẫn lưu ảnh sau khi xử lý và vẽ bbox
-
+import base64
 
 def enhance_image(image):
     """Enhance một ảnh."""
@@ -60,49 +52,55 @@ def process_and_overlay(original_image, enhanced_image, white_threshold=70, lowe
     final_result = cv2.add(foreground, background)
     return final_result
 
+def encode_image_to_base64(image):
+    """Chuyển đổi ảnh (NumPy array) thành chuỗi base64."""
+    retval, buffer = cv2.imencode('.jpg', image)  # Hoặc .png, tùy định dạng bạn muốn
+    if retval:
+        jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+        return jpg_as_text
+    else:
+        print("Error: Could not encode image to base64.")
+        return None
+    
+def count_pipes(image_path, path_yolo):
+    """Đếm số lượng ống và trả về số lượng, ảnh đã vẽ bounding box dưới dạng base64."""
+    model = YOLO(path_yolo)
+    image = cv2.imread(image_path)
+    if image is None:
+        print(f"Error: Could not read image at {image_path}")
+        return 0, None  # Trả về 0 và None nếu không đọc được ảnh
 
-# --- Bắt đầu xử lý ---
-# 1. Đọc ảnh gốc
-image = cv2.imread(image_path)
-if image is None:
-    print(f"Error: Could not read image at {image_path}")
-    exit()
+    enhanced_image = enhance_image(image)
+    overlayed_image = process_and_overlay(image, enhanced_image)
 
-# 2. Xử lý ảnh (enhance)
-enhanced_image = enhance_image(image)
+    if overlayed_image is None:
+        return 0, None
 
-# 3. Tạo overlay
-overlayed_image = process_and_overlay(image, enhanced_image)
+    results_model = model(overlayed_image)
 
-if overlayed_image is None:
-     exit()
+    detected_boxes = results_model[0].boxes
+    count = 0
+    for box in detected_boxes:
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+        conf = box.conf[0].item()
+        cls = int(box.cls[0].item())
 
-# 4. Dự đoán trên ảnh đã overlay
-results_model = model(overlayed_image)  # Dự đoán trên ảnh đã xử lý
+        if conf < 0.34:
+            continue
 
+        count += 1
+        cv2.rectangle(overlayed_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+        cv2.putText(overlayed_image, f'Count: {count}, Class: {cls}, Conf: {conf:.2f}',
+                    (int(x1), int(y1) - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
-# 5. Vẽ bounding boxes và đếm
-detected_boxes = results_model[0].boxes
-count = 0
-for box in detected_boxes:
-    x1, y1, x2, y2 = box.xyxy[0].tolist()
-    conf = box.conf[0].item()
-    cls = int(box.cls[0].item())
+    # Chuyển đổi ảnh sang base64
+    base64_image = encode_image_to_base64(overlayed_image)
 
-    if conf < 0.34:
-        continue
+    return count, base64_image
 
-    count += 1
-    cv2.rectangle(overlayed_image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-    cv2.putText(overlayed_image, f'Class: {cls}, Conf: {conf:.2f}',
-                (int(x1), int(y1) - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+if __name__ == "__main__":
+    model_path = 'training_results_1m.pt' 
+    image_path = './test/original/2022_10_03_11_13_IMG_0078_JPG.rf.588ea82f31d837410378588c55d3fd39.jpg' 
 
-# 6. Hiển thị và lưu
-print(f'Count: {count}') # Kết quả chỉnh xác
-
-# Hiển thị ảnh với bounding boxes
-# print(f'Detected Objects: {len(detected_boxes)}')
-
-cv2.imwrite(output_image_path, overlayed_image)  # Lưu ảnh đã vẽ bounding box
-print(f"Saved output image to {output_image_path}")
+    count, base64_img = count_pipes(image_path, model_path)
