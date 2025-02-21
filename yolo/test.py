@@ -62,13 +62,16 @@ def encode_image_to_base64(image):
         print("Error: Could not encode image to base64.")
         return None
     
-def count_pipes(image_path, path_yolo):
+def count_pipes(image_base64, path_yolo):
     """Đếm số lượng ống và trả về số lượng, ảnh đã vẽ bounding box dưới dạng base64."""
     model = YOLO(path_yolo)
-    image = cv2.imread(image_path)
-    if image is None:
-        print(f"Error: Could not read image at {image_path}")
-        return 0, None  # Trả về 0 và None nếu không đọc được ảnh
+    
+    # Giải mã chuỗi Base64 thành mảng byte
+    image_data = base64.b64decode(image_base64)
+    # Chuyển đổi dữ liệu byte thành mảng numpy
+    np_arr = np.frombuffer(image_data, np.uint8)
+    # Giải mã mảng numpy thành ảnh
+    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
     enhanced_image = enhance_image(image)
     overlayed_image = process_and_overlay(image, enhanced_image)
@@ -101,6 +104,6 @@ def count_pipes(image_path, path_yolo):
 
 if __name__ == "__main__":
     model_path = 'training_results_1m.pt' 
-    image_path = './test/original/2022_10_03_11_13_IMG_0078_JPG.rf.588ea82f31d837410378588c55d3fd39.jpg' 
+    image_base64 = ''
 
-    count, base64_img = count_pipes(image_path, model_path)
+    count, base64_img = count_pipes(image_base64, model_path)
