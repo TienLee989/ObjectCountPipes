@@ -3,6 +3,16 @@ import cv2
 import numpy as np
 import base64
 
+def decode_image_from_base64(image_base64):
+    # Nếu có header như "data:image/jpeg;base64," thì loại bỏ header đi
+    if image_base64.startswith("data:image"):
+        image_base64 = image_base64.split(',')[1]
+    image_data = base64.b64decode(image_base64)
+    np_arr = np.frombuffer(image_data, np.uint8)
+    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    return image
+
+
 def enhance_image(image):
     """Enhance một ảnh."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -66,12 +76,10 @@ def count_pipes(image_base64, path_yolo):
     """Đếm số lượng ống và trả về số lượng, ảnh đã vẽ bounding box dưới dạng base64."""
     model = YOLO(path_yolo)
     
-    # Giải mã chuỗi Base64 thành mảng byte
-    image_data = base64.b64decode(image_base64)
-    # Chuyển đổi dữ liệu byte thành mảng numpy
-    np_arr = np.frombuffer(image_data, np.uint8)
-    # Giải mã mảng numpy thành ảnh
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    image = decode_image_from_base64(image_base64)
+    if image is None:
+        print("Error: Không thể giải mã ảnh từ chuỗi Base64.")
+        return 0, None
 
     enhanced_image = enhance_image(image)
     overlayed_image = process_and_overlay(image, enhanced_image)
@@ -104,6 +112,8 @@ def count_pipes(image_base64, path_yolo):
 
 if __name__ == "__main__":
     model_path = 'training_results_1m.pt' 
-    image_base64 = ''
+    image_base64 = ""
 
     count, base64_img = count_pipes(image_base64, model_path)
+    print(count)
+    print(base64_img)
