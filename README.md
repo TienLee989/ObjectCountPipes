@@ -67,4 +67,70 @@ flowchart TD
 - **Attention U-Net**: Phân đoạn ảnh và xác định vùng chứa đối tượng.  
 - **DBSCAN (Sklearn)**: Gom nhóm đối tượng.  
 - **OpenCV**: Xử lý ảnh.  
-- **Numpy, Torch**: Xử lý số liệu và tensor.  
+- **Numpy, Torch**: Xử lý số liệu và tensor.
+
+## 🏗 Topology cho mô hình Attention U-Net và quy trình huấn luyện
+Huấn luyện mô hình Attention U-Net với Self-Attention cho bài toán phân đoạn ảnh (Image Segmentation)
+
+```mermaid
+flowchart TD
+  subgraph "Xu ly Dataset"
+    A[Load Annotations from JSON file]
+    B[Mapping image_id to file_name]
+    C[Mapping file_name to annotations]
+    D[Data Generator]
+    E[Load Image from image_dir]
+    F[Create Mask from bbox - Annotation]
+    G[Resize Image and Mask to input_size]
+    H[Output Batch: Images and Masks]
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+  end
+```
+
+```mermaid
+flowchart TD
+    subgraph "Xay dung Attention U-Net"
+      I[Input Layer: input_shape]
+      J[Encoder Block 1: Conv Block 64 + MaxPooling]
+      K[Encoder Block 2: Conv Block 128 + MaxPooling]
+      L[Encoder Block 3: Conv Block 256 + MaxPooling]
+      M[Encoder Block 4: Conv Block 512 + MaxPooling]
+      N[Encoder Block 5: Conv Block 1024]
+      O[Self-Attention Layer: Bottleneck]
+      P[Decoder Block 1: UpSampling + AttentionGate skip Block4 + Concatenate + Conv Block 512]
+      Q[Decoder Block 2: UpSampling + AttentionGate skip Block3 + Concatenate + Conv Block 256]
+      R[Decoder Block 3: UpSampling + AttentionGate skip Block2 + Concatenate + Conv Block 128]
+      S[Decoder Block 4: UpSampling + AttentionGate skip Block1 + Concatenate + Conv Block 64]
+      T[Output Layer: Conv2D with softmax]
+      I --> J
+      J --> K
+      K --> L
+      L --> M
+      M --> N
+      N --> O
+      O --> P
+      P --> Q
+      Q --> R
+      R --> S
+      S --> T
+    end
+
+    subgraph "Huan luyen mo hinh"
+      U[Train Generator: batch_size, epochs]
+      V[Compile Model: optimizer Adam, loss sparse_categorical_crossentropy]
+      W[Model.fit: Train, Validation, Callbacks]
+      X[ModelCheckpoint Callback: Save best weights]
+      Y[Save final weights: attention_unet_coco.h5]
+      T --> U
+      U --> V
+      V --> W
+      W --> X
+      X --> Y
+    end
+```
