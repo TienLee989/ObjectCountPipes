@@ -1,5 +1,12 @@
 # 🏗 **Topology của Hệ thống Phát hiện và Đếm Đối tượng**  
 
+##### Link model training
+[Model yolo after 700 epochs and enhance image](https://drive.google.com/file/d/1zwTjVbIii7afvw-E-_x_N18gXeMUzjfq/view?usp=drive_link)
+
+[Attention Unet5](https://drive.google.com/file/d/1Sg7u8kZa7zPE3XgtB3xg-Ed3MitKNlBr/view?usp=drive_link)
+
+[Những hình ảnh đầu ra cảu quá trình test](https://drive.google.com/drive/folders/1cb-z6BdstMr9oSzAnVAikZuJ4JVnyvZ9?usp=drive_link)
+
 ## 📁 **1. Thành phần chính**  
 - **Input**: Ảnh từ các thư mục theo loại đối tượng (type folder).  
 - **Models**:  
