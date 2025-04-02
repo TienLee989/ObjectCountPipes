@@ -34,7 +34,7 @@ def enhance_image(image):
     return dilation
 
 
-def process_and_overlay(original_image, enhanced_image, white_threshold=70, lower_white_threshold=50):
+def process_and_overlay(original_image, enhanced_image, white_threshold=120, lower_white_threshold=100):
     """Tạo overlay từ ảnh đã enhance và đè lên ảnh gốc."""
     enhanced_img = enhanced_image  # Sử dụng trực tiếp ảnh đã enhance
     if enhanced_img is None:
